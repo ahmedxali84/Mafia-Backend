@@ -12,8 +12,11 @@ const whispers = require('./game/whispers');
 const { stateFor, chatChannel, canSeeMessage } = require('./view');
 
 const PORT = process.env.PORT || 4000;
-// Set CLIENT_ORIGIN (comma separated) in production; '*' only for local testing.
-const ORIGIN = process.env.CLIENT_ORIGIN ? process.env.CLIENT_ORIGIN.split(',') : '*';
+// Sites allowed to talk to this server (CORS). CLIENT_ORIGIN (comma separated) replaces the defaults.
+const DEFAULT_ORIGINS = ['https://mafia-frontend-lyart.vercel.app', 'http://localhost:3000', 'http://127.0.0.1:3000'];
+const ORIGIN = process.env.CLIENT_ORIGIN
+  ? process.env.CLIENT_ORIGIN.split(',').map((o) => o.trim().replace(/\/$/, '')).filter(Boolean)
+  : DEFAULT_ORIGINS;
 const DEBUG = process.env.NODE_ENV !== 'production' || process.env.ENABLE_DEBUG === 'true';
 
 // WebRTC servers for voice chat. STUN finds a direct path; TURN relays audio when that fails.

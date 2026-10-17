@@ -30,7 +30,7 @@ Check it: `GET /health` → `{ "ok": true, "rooms": 0 }`
 |---|---|---|
 | `PORT` | no | Port to listen on (default `4000`; hosts set it for you) |
 | `NODE_ENV` | prod | `production` disables the debug "Add bots" buttons |
-| `CLIENT_ORIGIN` | prod | Frontend URL(s) allowed by CORS, comma separated. Empty = allow all (local only) |
+| `CLIENT_ORIGIN` | no | Frontend URL(s) allowed by CORS, comma separated. Empty = `https://mafia-frontend-lyart.vercel.app` + `localhost:3000` |
 | `ENABLE_DEBUG` | no | `true` keeps debug bots on in production |
 | `TURN_URL`, `TURN_USERNAME`, `TURN_CREDENTIAL` | no | TURN relay for voice chat when players are behind strict NATs |
 
@@ -54,10 +54,10 @@ Run a **single instance**: rooms live in memory.
 **Render** (blueprint included):
 1. Push this repo to GitHub.
 2. Render → New → **Blueprint** → pick the repo (uses `render.yaml`).
-3. Set `CLIENT_ORIGIN` to your frontend URL, e.g. `https://mafia-frontend.vercel.app`.
+3. The live frontend `https://mafia-frontend-lyart.vercel.app` is allowed by default; set `CLIENT_ORIGIN` only to use other/extra URLs (e.g. Vercel preview links).
 
 **Railway / other:** build `npm ci`, start `npm start`, health check `/health`,
-env `NODE_ENV=production` and `CLIENT_ORIGIN=<frontend URL>`.
+env `NODE_ENV=production` (`CLIENT_ORIGIN` only if the frontend URL differs from the default).
 
 Then set the frontend's `NEXT_PUBLIC_SERVER_URL` to this server's public URL.
 

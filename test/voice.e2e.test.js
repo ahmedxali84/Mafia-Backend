@@ -149,10 +149,16 @@ test('routes follow the game: Mafia-only at night, everyone by day', async () =>
   );
   await emit(cs[0].socket, 'start_game', {});
   await until(() => cs.every((c) => c.state?.phase === 'NIGHT'));
+  // A fast night can end before every client is seen in it, so this may be a later night with ghosts.
   for (const c of cs) {
     const v = c.state.you.voice;
-    if (c.state.you.role === 'MAFIA') assert.equal(v.channel, 'mafia');
-    else assert.deepEqual([v.channel, v.sendTo, v.hearFrom], [null, [], []], `${c.id} (${c.state.you.role}) is silent at night`);
+    if (!c.state.you.alive) assert.equal(v.channel, 'dead');
+    else if (c.state.you.role === 'MAFIA') assert.equal(v.channel, 'mafia');
+    else {
+      assert.equal(v.channel, null, `${c.id} (${c.state.you.role}) is silent at night`);
+      assert.deepEqual(v.sendTo, []);
+      assert.ok(!v.hearFrom.some((id) => c.state.players.find((p) => p.id === id).role === 'MAFIA' && c.state.players.find((p) => p.id === id).alive), 'town never hears living Mafia at night');
+    }
   }
   await until(() => cs.every((c) => c.state?.phase === 'DISCUSSION'));
   for (const c of cs) {
