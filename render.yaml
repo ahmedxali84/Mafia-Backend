@@ -1,0 +1,20 @@
+# Render blueprint: New > Blueprint > pick this repo.
+services:
+  - type: web
+    name: mafia-backend
+    runtime: node
+    plan: free
+    buildCommand: npm ci
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: CLIENT_ORIGIN
+        sync: false # set to your frontend URL, e.g. https://mafia-frontend.vercel.app
+      - key: TURN_URL
+        sync: false
+      - key: TURN_USERNAME
+        sync: false
+      - key: TURN_CREDENTIAL
+        sync: false

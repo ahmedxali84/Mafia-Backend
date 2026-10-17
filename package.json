@@ -1,0 +1,28 @@
+{
+  "name": "mafia-backend",
+  "version": "1.0.0",
+  "description": "Multiplayer Mafia game server: Express + Socket.IO, voice chat signaling",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node --watch index.js",
+    "test": "node --test \"test/*.test.js\"",
+    "bots": "node scripts/addBots.js"
+  },
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "cors": "^2.8.6",
+    "dotenv": "^18.0.5",
+    "express": "^5.2.1",
+    "socket.io": "^4.8.4"
+  },
+  "devDependencies": {
+    "socket.io-client": "^4.8.4"
+  },
+  "private": true,
+  "engines": {
+    "node": ">=22"
+  }
+}
