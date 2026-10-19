@@ -1,6 +1,5 @@
 // Whispers: each player may secretly message one living player a limited number of
-// times per game. Everyone sees THAT a whisper happened (a public notice) but never
-// the text - only the sender and the receiver can read it.
+// times per game. Fully private: only the sender and the receiver know it happened.
 const WHISPERS_PER_GAME = 2;
 const MAX_LEN = 140;
 const ALLOWED_PHASES = ['DISCUSSION', 'VOTING'];
@@ -13,7 +12,7 @@ function resetWhispers(room) {
 
 const left = (p) => (typeof p.whispersLeft === 'number' ? p.whispersLeft : 0);
 
-// Returns { error } or { whisper, notice } messages ready to be stored and delivered.
+// Returns { error } or { whisper }, a message ready to be stored and delivered.
 function sendWhisper(room, fromId, toId, text) {
   if (!ALLOWED_PHASES.includes(room.phase)) return { error: 'Whispers are only allowed during the day' };
   const from = room.players.find((p) => p.id === fromId);
@@ -26,12 +25,9 @@ function sendWhisper(room, fromId, toId, text) {
   if (left(from) <= 0) return { error: 'You have no whispers left' };
 
   from.whispersLeft = left(from) - 1;
-  const base = { ts: Date.now() };
-  const id = () => `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+  const id = `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
   return {
-    whisper: { ...base, id: id(), channel: 'whisper', from: from.id, name: from.name, to: to.id, toName: to.name, text: clean },
-    // The public notice deliberately carries no text.
-    notice: { ...base, id: id(), channel: 'notice', from: from.id, name: from.name, to: to.id, toName: to.name, text: `${from.name} whispered to ${to.name}` },
+    whisper: { id, ts: Date.now(), channel: 'whisper', from: from.id, name: from.name, to: to.id, toName: to.name, text: clean },
   };
 }
 

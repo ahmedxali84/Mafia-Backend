@@ -1,6 +1,9 @@
 const { shuffle } = require('./roles');
 
 const NIGHT_ROLES = ['MAFIA', 'DOCTOR', 'DETECTIVE'];
+// Votes are only cast in the voting round. A table that has made up its mind skips the rest of
+// the discussion with a ready-to-vote majority (phases.setReady) instead of voting early.
+const VOTE_PHASES = ['VOTING'];
 
 function findPlayer(room, id) {
   return room.players.find((p) => p.id === id);
@@ -80,7 +83,7 @@ function resolveNight(room) {
 
 // Records a vote. targetId may be 'SKIP'.
 function castVote(room, voterId, targetId) {
-  if (room.phase !== 'VOTING') return { error: 'Not voting time' };
+  if (!VOTE_PHASES.includes(room.phase)) return { error: 'Not voting time' };
   const voter = findPlayer(room, voterId);
   if (!voter || !voter.alive) return { error: 'Dead players cannot vote' };
   if (targetId !== 'SKIP') {
@@ -94,6 +97,16 @@ function castVote(room, voterId, targetId) {
 
 function allVotesIn(room) {
   return room.players.filter((p) => p.alive).every((p) => room.votes[p.id]);
+}
+
+// True once the result can no longer change: everyone has voted, or one choice (a player or
+// SKIP) already holds more than half of the living votes, so nothing else can catch up.
+function voteDecided(room) {
+  if (allVotesIn(room)) return true;
+  const alive = room.players.filter((p) => p.alive).length;
+  const counts = {};
+  for (const t of Object.values(room.votes)) counts[t] = (counts[t] || 0) + 1;
+  return Object.values(counts).some((c) => c > alive / 2);
 }
 
 // Tallies votes. The player with the most votes is eliminated; a tie (or skip
@@ -121,6 +134,7 @@ function tallyVotes(room) {
 
 module.exports = {
   NIGHT_ROLES,
+  VOTE_PHASES,
   findPlayer,
   resetNight,
   resetVotes,
@@ -129,5 +143,6 @@ module.exports = {
   resolveNight,
   castVote,
   allVotesIn,
+  voteDecided,
   tallyVotes,
 };

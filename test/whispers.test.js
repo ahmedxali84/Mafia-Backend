@@ -44,22 +44,21 @@ test('validation: phase, dead, self, empty, bad target', () => {
   assert.equal(room.players[0].whispersLeft, W.WHISPERS_PER_GAME, 'failed attempts cost nothing');
 });
 
-test('text is capped; the public notice never contains the text', () => {
+test('text is capped; no public notice is produced', () => {
   const room = mk();
   const res = W.sendWhisper(room, 'p0', 'p1', 'secret '.repeat(100));
   assert.equal(res.whisper.text.length, W.MAX_LEN);
-  assert.ok(!res.notice.text.includes('secret'));
-  assert.equal(res.notice.text, 'A whispered to B');
+  assert.deepEqual(Object.keys(res), ['whisper']);
 });
 
-test('only sender and receiver can see a whisper; everyone sees the notice', () => {
+test('only sender and receiver know about a whisper', () => {
   const room = mk();
-  const { whisper, notice } = W.sendWhisper(room, 'p0', 'p1', 'the doctor is C');
-  room.chat.push(notice, whisper);
+  const { whisper } = W.sendWhisper(room, 'p0', 'p1', 'the doctor is C');
+  room.chat.push(whisper);
   const seen = (id) => stateFor(room, room.players.find((p) => p.id === id)).chat.map((m) => m.channel);
-  assert.deepEqual(seen('p0'), ['notice', 'whisper']);
-  assert.deepEqual(seen('p1'), ['notice', 'whisper']);
-  for (const id of ['p2', 'p3', 'p4']) assert.deepEqual(seen(id), ['notice'], `${id} must not see the text`);
+  assert.deepEqual(seen('p0'), ['whisper']);
+  assert.deepEqual(seen('p1'), ['whisper']);
+  for (const id of ['p2', 'p3', 'p4']) assert.deepEqual(seen(id), [], `${id} must not know a whisper happened`);
   // dead players (ghost chat) do not get to read whispers either
   room.players[4].alive = false;
   assert.equal(canSeeMessage(room, room.players[4], whisper), false);

@@ -14,7 +14,7 @@ const until = (fn, ms = 15000) =>
     const iv = setInterval(() => { if (fn()) { clearTimeout(t); clearInterval(iv); resolve(); } }, 20);
   });
 
-test('a whisper reaches only sender + receiver; others see a notice without the text', async () => {
+test('a whisper reaches only sender + receiver; others get nothing at all', async () => {
   await new Promise((r) => server.listen(0, r));
   const url = `http://localhost:${server.address().port}`;
   const cs = Array.from({ length: 5 }, (_, i) => ({ id: `w${i}`, name: `W${i}`, state: null, msgs: [], socket: connect(url, { forceNew: true }) }));
@@ -57,8 +57,7 @@ test('a whisper reaches only sender + receiver; others see a notice without the 
   assert.equal(B.msgs.find((m) => m.channel === 'whisper').text, SECRET);
   assert.ok(A.msgs.some((m) => m.channel === 'whisper'));
   for (const c of cs) {
-    assert.ok(c.msgs.some((m) => m.channel === 'notice' && m.text === `${A.name} whispered to ${B.name}`), `${c.name} sees the notice`);
-    if (c !== A && c !== B) assert.ok(!c.msgs.some((m) => JSON.stringify(m).includes(SECRET)), `${c.name} must not see the text`);
+    if (c !== A && c !== B) assert.ok(!c.msgs.some((m) => m.channel === 'whisper' || m.channel === 'notice'), `${c.name} must not learn of the whisper`);
   }
   // reconnect snapshots must not leak either
   for (const id of others) {

@@ -2,6 +2,25 @@
 // you see your own role, your Mafia teammates (if Mafia), and the role of
 // anyone who is dead or once the game is over.
 const { teamOf } = require('./game/roles');
+const { VOTE_PHASES } = require('./game/actions');
+
+// The Mafia get their own always-open channel when there are two or more of them.
+// Living members write to it; every Mafia member (dead too) can read it.
+function hasMafiaChat(room, p) {
+  if (p.role !== 'MAFIA' || room.phase === 'LOBBY') return false;
+  return room.players.filter((x) => x.role === 'MAFIA').length >= 2;
+}
+const canWriteMafiaChat = (room, p) => hasMafiaChat(room, p) && p.alive && room.phase !== 'GAME_OVER';
+
+// At night a Mafia member sees who each living teammate has marked, so the family can agree.
+function mafiaPicks(room, viewer) {
+  if (room.phase !== 'NIGHT' || viewer.role !== 'MAFIA') return {};
+  const picks = {};
+  for (const p of room.players) {
+    if (p.id !== viewer.id && p.alive && p.role === 'MAFIA' && room.night.actions[p.id]) picks[p.id] = room.night.actions[p.id];
+  }
+  return picks;
+}
 
 function canSeeRole(room, viewer, p) {
   if (room.phase === 'GAME_OVER') return true;
@@ -51,7 +70,9 @@ function stateFor(room, viewer) {
     phase: room.phase,
     endsAt: room.endsAt,
     phaseMs: room.phaseMs || 0,
-    votedIds: room.phase === 'VOTING' ? Object.keys(room.votes) : [],
+    votedIds: VOTE_PHASES.includes(room.phase) ? Object.keys(room.votes) : [],
+    readyIds: room.phase === 'DISCUSSION' ? Object.keys(room.ready || {}) : [],
+    history: room.phase === 'LOBBY' ? [] : room.history || [],
     serverNow: Date.now(),
     day: room.day,
     hostId: room.host,
@@ -73,14 +94,16 @@ function stateFor(room, viewer) {
       team: viewer.role ? teamOf(viewer.role) : null,
       alive: viewer.alive,
       nightTarget: room.night.actions[viewer.id] || null,
+      mafiaPicks: mafiaPicks(room, viewer),
       vote: room.votes[viewer.id] || null,
       checks: viewer.checks || [],
       chatChannel: chatChannel(room, viewer),
       whispersLeft: viewer.whispersLeft || 0,
+      mafiaChat: hasMafiaChat(room, viewer) ? { canWrite: canWriteMafiaChat(room, viewer) } : null,
       voice: voiceFor(room, viewer),
     },
     chat: room.chat.filter((m) => canSeeMessage(room, viewer, m)),
   };
 }
 
-module.exports = { stateFor, chatChannel, canSeeMessage, voiceFor };
+module.exports = { stateFor, chatChannel, canSeeMessage, voiceFor, canWriteMafiaChat };

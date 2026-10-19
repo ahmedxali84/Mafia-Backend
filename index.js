@@ -9,7 +9,7 @@ const phases = require('./game/phases');
 const actions = require('./game/actions');
 const { teamOf } = require('./game/roles');
 const whispers = require('./game/whispers');
-const { stateFor, chatChannel, canSeeMessage } = require('./view');
+const { stateFor, chatChannel, canSeeMessage, canWriteMafiaChat } = require('./view');
 
 const PORT = process.env.PORT || 4000;
 // Sites allowed to talk to this server (CORS). CLIENT_ORIGIN (comma separated) replaces the defaults.
@@ -174,26 +174,38 @@ io.on('connection', (socket) => {
     cb({ ok: true });
   });
 
-  socket.on('chat_message', ({ text } = {}, cb = () => {}) => {
+  // `channel: 'mafia'` writes to the Mafia's private channel (open day and night when there
+  // are two or more Mafia); otherwise the message goes to the player's current channel.
+  // During discussion: "I'm ready to vote". When every living human is ready, voting starts.
+  socket.on('ready_vote', ({ ready = true } = {}, cb = () => {}) => {
+    const { room, player } = me();
+    if (!room) return cb({ error: 'Not in a room' });
+    const res = phases.setReady(room, player.id, !!ready, ctx);
+    if (res.error) return cb(res);
+    if (room.phase === 'DISCUSSION') broadcast(room); // otherwise setPhase already sent the new state
+    cb({ ok: true });
+  });
+
+  socket.on('chat_message', ({ text, channel: wanted } = {}, cb = () => {}) => {
     const { room, player } = me();
     if (!room) return cb({ error: 'Not in a room' });
     if (Date.now() - (player.lastChat || 0) < 600) return cb({ error: 'Slow down a little' });
     player.lastChat = Date.now();
     const clean = String(text || '').trim().slice(0, 300);
     if (!clean) return cb({ error: 'Empty message' });
-    const channel = chatChannel(room, player);
+    if (wanted === 'mafia' && !canWriteMafiaChat(room, player)) return cb({ error: 'The Mafia channel is closed' });
+    const channel = wanted === 'mafia' ? 'mafia' : chatChannel(room, player);
     if (!channel) return cb({ error: 'You cannot chat right now' });
     postChat(room, player, clean, channel);
     cb({ ok: true });
   });
 
-  // Secret message to one living player (limited per game). Everyone sees only a notice.
+  // Secret message to one living player (limited per game). Nobody else learns it happened.
   socket.on('whisper', ({ targetId, text } = {}, cb = () => {}) => {
     const { room, player } = me();
     if (!room) return cb({ error: 'Not in a room' });
     const res = whispers.sendWhisper(room, player.id, targetId, text);
     if (res.error) return cb(res);
-    deliver(room, res.notice);
     deliver(room, res.whisper);
     broadcast(room); // refreshes the sender's whispers-left counter
     cb({ ok: true, whispersLeft: player.whispersLeft });

@@ -104,6 +104,35 @@ test('voting: most votes eliminated, tie eliminates nobody', () => {
   assert.equal(r2.tie, true);
 });
 
+test('votes only in the voting round; it is decided early by a majority or a full count', () => {
+  const room = mk(['MAFIA', 'DOCTOR', 'DETECTIVE', 'VILLAGER', 'VILLAGER']);
+  room.phase = 'DISCUSSION';
+  assert.ok(A.castVote(room, 'p0', 'p3').error, 'no voting while discussing');
+  room.phase = 'VOTING';
+  assert.ok(A.castVote(room, 'p0', 'p3').ok);
+  A.castVote(room, 'p1', 'p3');
+  assert.equal(A.voteDecided(room), false, '2 of 5 is not a majority');
+  A.castVote(room, 'p2', 'p3');
+  assert.equal(A.voteDecided(room), true, '3 of 5 cannot be caught');
+
+  const skip = mk(['MAFIA', 'DOCTOR', 'DETECTIVE', 'VILLAGER', 'VILLAGER']);
+  skip.phase = 'VOTING';
+  ['p0', 'p1', 'p2'].forEach((id) => A.castVote(skip, id, 'SKIP'));
+  assert.equal(A.voteDecided(skip), true, 'a SKIP majority also settles it');
+
+  const split = mk(['MAFIA', 'DOCTOR', 'DETECTIVE', 'VILLAGER']);
+  split.phase = 'VOTING';
+  A.castVote(split, 'p0', 'p3');
+  A.castVote(split, 'p1', 'p3');
+  A.castVote(split, 'p2', 'p0');
+  assert.equal(A.voteDecided(split), false, '2 of 4 is only half');
+  A.castVote(split, 'p3', 'p0');
+  assert.equal(A.voteDecided(split), true, 'everyone has voted');
+
+  room.phase = 'NIGHT';
+  assert.ok(A.castVote(room, 'p4', 'p3').error, 'no votes at night');
+});
+
 test('voting validation', () => {
   const room = mk(['MAFIA', 'DOCTOR', 'DETECTIVE', 'VILLAGER', 'VILLAGER']);
   room.phase = 'VOTING';

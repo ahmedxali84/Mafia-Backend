@@ -34,7 +34,10 @@ function setPhase(room, phase, ctx) {
     room.day += 1;
     actions.resetNight(room);
   }
-  if (phase === 'VOTING') actions.resetVotes(room);
+  if (phase === 'DISCUSSION') {
+    actions.resetVotes(room);
+    room.ready = {};
+  }
   ctx.onPhase(room);
   ctx.onChange(room);
   bots.schedule(room, ctx, { scale, after: (r) => { checkEarlyEnd(r, ctx); ctx.onChange(r); } });
@@ -52,6 +55,7 @@ function startGame(room, ctx) {
   room.day = 0;
   room.startedAt = Date.now();
   room.claims = [];
+  room.history = []; // what happened each day, shown as the match timeline
   room.result = null;
   room.winner = null;
   room.chat = [];
@@ -85,6 +89,7 @@ function endNight(room, ctx) {
     killedRole: res.killed ? res.killed.role : null,
     saved: res.saved,
   };
+  record(room, { type: 'NIGHT', name: room.result.killedName, role: room.result.killedRole, saved: res.saved });
   setPhase(room, 'DAY_RESULT', ctx);
 }
 
@@ -101,7 +106,29 @@ function endVoting(room, ctx) {
     tie: res.tie,
     counts: res.counts,
   };
+  record(room, { type: 'VOTE', name: room.result.eliminatedName, role: room.result.eliminatedRole, tie: res.tie });
   setPhase(room, 'VOTE_RESULT', ctx);
+}
+
+// Public events only (deaths are revealed to everyone anyway), so the timeline can be shown to all.
+function record(room, event) {
+  (room.history ||= []).push({ day: room.day, ...event });
+}
+
+// DISCUSSION: marks a living player as ready to vote. Once a majority of the living humans
+// (bots never press it) are ready, the discussion clock is dropped and the table moves
+// straight to VOTING. Returns { ok } or { error }.
+function setReady(room, playerId, ready, ctx) {
+  if (room.phase !== 'DISCUSSION') return { error: 'Not discussion time' };
+  const p = actions.findPlayer(room, playerId);
+  if (!p || !p.alive) return { error: 'Only living players can do that' };
+  room.ready ||= {};
+  if (ready) room.ready[p.id] = true;
+  else delete room.ready[p.id];
+  const humans = room.players.filter((x) => x.alive && !x.bot && x.connected !== false);
+  const readyN = humans.filter((x) => room.ready[x.id]).length;
+  if (humans.length && readyN > humans.length / 2) setPhase(room, 'VOTING', ctx);
+  return { ok: true };
 }
 
 function onPhaseEnd(room, ctx) {
@@ -125,10 +152,11 @@ function onPhaseEnd(room, ctx) {
   }
 }
 
-// Called after a human acts so the phase can end early once everyone is done.
+// Called after anyone acts so the phase can end early: the night once every night role has
+// acted, the vote as soon as its result is decided.
 function checkEarlyEnd(room, ctx) {
   if (room.phase === 'NIGHT' && actions.allNightActionsIn(room)) endNight(room, ctx);
-  else if (room.phase === 'VOTING' && actions.allVotesIn(room)) endVoting(room, ctx);
+  else if (actions.VOTE_PHASES.includes(room.phase) && actions.voteDecided(room)) endVoting(room, ctx);
 }
 
 function backToLobby(room, ctx) {
@@ -146,4 +174,4 @@ function backToLobby(room, ctx) {
   ctx.onChange(room);
 }
 
-module.exports = { startGame, setPhase, checkEarlyEnd, backToLobby, clearTimers, DURATIONS };
+module.exports = { startGame, setPhase, checkEarlyEnd, setReady, backToLobby, clearTimers, DURATIONS };
