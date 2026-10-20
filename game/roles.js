@@ -1,5 +1,8 @@
 const MIN_PLAYERS = 5;
 const MAX_PLAYERS = 12;
+// Bigger tables get the extra roles: the Jester from 6 players, the Thief from 7.
+const JESTER_FROM = 6;
+const THIEF_FROM = 7;
 
 function shuffle(arr) {
   for (let i = arr.length - 1; i > 0; i--) {
@@ -15,18 +18,38 @@ function mafiaCount(n) {
   return 3;
 }
 
+// The Jester plays alone: they win only by getting themselves voted out.
+// The Thief is town until they steal a role, then they belong to whatever team that role is on.
 function teamOf(role) {
-  return role === 'MAFIA' ? 'MAFIA' : 'VILLAGERS';
+  if (role === 'MAFIA') return 'MAFIA';
+  if (role === 'JESTER') return 'JESTER';
+  return 'VILLAGERS';
 }
 
-function assignRoles(players) {
+// Roles only dealt when every human at the table runs a client that can show them
+// (each client lists them in `roles` when it joins), so an old frontend never gets one.
+const EXTRA_ROLES = ['JESTER', 'THIEF'];
+
+function extrasFor(players) {
+  const humans = players.filter((p) => !p.bot);
+  return EXTRA_ROLES.filter((r) => humans.every((p) => (p.knows || []).includes(r)));
+}
+
+// The roles dealt to a table of n players (unshuffled). `extras`: which extra roles may be dealt.
+function rolesFor(n, extras = EXTRA_ROLES) {
   const roles = [];
-  const m = mafiaCount(players.length);
+  const m = mafiaCount(n);
   for (let i = 0; i < m; i++) roles.push('MAFIA');
   roles.push('DOCTOR', 'DETECTIVE');
-  while (roles.length < players.length) roles.push('VILLAGER');
-  shuffle(roles);
+  if (n >= JESTER_FROM && extras.includes('JESTER')) roles.push('JESTER');
+  if (n >= THIEF_FROM && extras.includes('THIEF')) roles.push('THIEF');
+  while (roles.length < n) roles.push('VILLAGER');
+  return roles;
+}
+
+function assignRoles(players, extras = EXTRA_ROLES) {
+  const roles = shuffle(rolesFor(players.length, extras));
   players.forEach((p, i) => (p.role = roles[i]));
 }
 
-module.exports = { assignRoles, mafiaCount, teamOf, shuffle, MIN_PLAYERS, MAX_PLAYERS };
+module.exports = { assignRoles, rolesFor, extrasFor, EXTRA_ROLES, mafiaCount, teamOf, shuffle, MIN_PLAYERS, MAX_PLAYERS, JESTER_FROM, THIEF_FROM };

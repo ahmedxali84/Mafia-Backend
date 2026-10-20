@@ -20,15 +20,19 @@ test('mafia count by player count', () => {
   assert.equal(mafiaCount(12), 3);
 });
 
-test('assignRoles gives correct role counts for 5-12 players', () => {
+test('assignRoles gives correct role counts for 5-12 players (Jester from 6, Thief from 7)', () => {
   for (let n = 5; n <= 12; n++) {
     const players = Array.from({ length: n }, (_, i) => ({ id: i }));
     assignRoles(players);
     const c = (r) => players.filter((p) => p.role === r).length;
+    const jester = n >= 6 ? 1 : 0;
+    const thief = n >= 7 ? 1 : 0;
     assert.equal(c('MAFIA'), mafiaCount(n));
     assert.equal(c('DOCTOR'), 1);
     assert.equal(c('DETECTIVE'), 1);
-    assert.equal(c('VILLAGER'), n - mafiaCount(n) - 2);
+    assert.equal(c('JESTER'), jester);
+    assert.equal(c('THIEF'), thief);
+    assert.equal(c('VILLAGER'), n - mafiaCount(n) - 2 - jester - thief);
   }
 });
 
