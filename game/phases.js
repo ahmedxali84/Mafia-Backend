@@ -23,6 +23,7 @@ function clearTimers(room) {
 }
 
 // ctx: { onChange(room), onPhase(room), onRole(room, player), onCheck(room, check), onGameOver(room) }
+// onRole is sent again to both players when the Thief steals a role.
 function setPhase(room, phase, ctx) {
   clearTimers(room);
   room.phase = phase;
@@ -50,6 +51,8 @@ function startGame(room, ctx) {
   room.players.forEach((p) => {
     p.alive = true;
     p.checks = [];
+    p.stole = null;
+    p.robbed = null;
   });
   resetWhispers(room);
   room.day = 0;
@@ -81,6 +84,15 @@ function endNight(room, ctx) {
     det.checks.push({ targetId: c.targetId, isMafia: c.isMafia, day: room.day });
     ctx.onCheck(room, det, c);
   }
+  if (res.theft) {
+    const thief = actions.findPlayer(room, res.theft.thiefId);
+    const mark = actions.findPlayer(room, res.theft.targetId);
+    // The thief knows who they robbed; the victim only learns what they lost.
+    thief.stole = { targetId: mark.id, role: res.theft.role, day: room.day };
+    mark.robbed = { role: res.theft.role, day: room.day };
+    ctx.onRole(room, thief);
+    ctx.onRole(room, mark);
+  }
   room.result = {
     type: 'NIGHT',
     day: room.day,
@@ -88,8 +100,9 @@ function endNight(room, ctx) {
     killedName: res.killed ? res.killed.name : null,
     killedRole: res.killed ? res.killed.role : null,
     saved: res.saved,
+    theft: !!res.theft, // public: everyone hears that something was stolen, not by whom
   };
-  record(room, { type: 'NIGHT', name: room.result.killedName, role: room.result.killedRole, saved: res.saved });
+  record(room, { type: 'NIGHT', name: room.result.killedName, role: room.result.killedRole, saved: res.saved, ...(res.theft && { theft: true }) });
   setPhase(room, 'DAY_RESULT', ctx);
 }
 
@@ -107,6 +120,8 @@ function endVoting(room, ctx) {
     counts: res.counts,
   };
   record(room, { type: 'VOTE', name: room.result.eliminatedName, role: room.result.eliminatedRole, tie: res.tie });
+  // The Jester's whole plan: get voted out, and the game ends on the spot with them as the winner.
+  if (res.eliminated && res.eliminated.role === 'JESTER') return finish(room, ctx, 'JESTER');
   setPhase(room, 'VOTE_RESULT', ctx);
 }
 
@@ -169,6 +184,8 @@ function backToLobby(room, ctx) {
     p.alive = true;
     p.role = null;
     p.checks = [];
+    p.stole = null;
+    p.robbed = null;
   });
   ctx.onPhase(room);
   ctx.onChange(room);

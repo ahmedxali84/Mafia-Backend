@@ -78,5 +78,7 @@ docs/VOICE.md   voice chat design + signaling protocol
 ## Rules (summary)
 
 - 5–12 players. Mafia: 1 (5–6), 2 (7–9), 3 (10–12). Always 1 Doctor + 1 Detective.
+- Jester (6+ players): plays alone. If the town votes them out, the game ends at once and the Jester wins. Killed at night, they just die. The Detective sees them as not Mafia.
+- Thief (7+ players): on the first night, picks a player and takes their role and team at dawn; that player becomes a Villager. The night still resolves on the old roles (a robbed Mafia's kill counts, checks see the old role). Robbing the night's victim gets nothing. After night 1 there is no Thief: an unused Thief settles as a Villager. Everyone hears that a role was stolen, not by whom.
 - Phases: LOBBY → ROLE_REVEAL → NIGHT → DAY_RESULT → DISCUSSION → VOTING → VOTE_RESULT → (NIGHT | GAME_OVER).
 - Voice and chat: public by day, Mafia-only at night, ghosts only talk to ghosts.

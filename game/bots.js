@@ -17,6 +17,9 @@ const LINES = {
   clear: ['I checked {name}. They\'re clean.'],
   liar: ['{name} is lying. Fake Detective, that\'s exactly what the Mafia would do.', 'Convenient story, {name}. I don\'t buy it.'],
   vote: ['My vote is on {name}.', 'I\'m going with {name}.', 'Sorry {name}. Nothing personal.'],
+  // The Jester wants the noose, so they play the part of a guilty man.
+  jester: ['Maybe I am the Mafia. What are you going to do about it?', 'Go on, vote me. I dare you.', 'Funny how nobody asks where I was last night.', "I'm not saying I did it. I'm not saying I didn't."],
+  robbed: ['I woke up and something was missing. Somebody got into my place last night.'],
   mafiaNight: ['Let\'s take {name} tonight.', '{name}. Quick and quiet.', 'I say {name}. They\'re getting too close.'],
 };
 
@@ -84,6 +87,7 @@ function nightTarget(room, bot) {
     const fresh = others.filter((p) => !checked.has(p.id));
     return (fresh.length ? pick(fresh) : pick(others))?.id || null;
   }
+  if (bot.role === 'THIEF') return others.length ? pick(others).id : null;
   return null;
 }
 
@@ -158,6 +162,8 @@ function schedule(room, ctx, { scale, after }) {
           }
           if (target?.alive && chance(0.35)) return say(room, ctx, bot, 'clear', { name: target.name });
         }
+        if (bot.role === 'JESTER' && chance(0.7)) return say(room, ctx, bot, 'jester');
+        if (bot.robbed?.day === room.day && chance(0.6)) return say(room, ctx, bot, 'robbed');
         if (r?.killedName && chance(0.55)) return say(room, ctx, bot, 'killed', { name: r.killedName });
         if (r?.saved && chance(0.5)) return say(room, ctx, bot, 'saved');
         if (chance(0.6)) {

@@ -97,6 +97,8 @@ function stateFor(room, viewer) {
       mafiaPicks: mafiaPicks(room, viewer),
       vote: room.votes[viewer.id] || null,
       checks: viewer.checks || [],
+      stole: viewer.stole || null, // Thief: { targetId, role, day } after a theft
+      robbed: viewer.robbed || null, // the Thief's victim: { role, day } (not who took it)
       chatChannel: chatChannel(room, viewer),
       whispersLeft: viewer.whispersLeft || 0,
       mafiaChat: hasMafiaChat(room, viewer) ? { canWrite: canWriteMafiaChat(room, viewer) } : null,
