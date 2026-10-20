@@ -26,21 +26,30 @@ function teamOf(role) {
   return 'VILLAGERS';
 }
 
-// The roles dealt to a table of n players (unshuffled).
-function rolesFor(n) {
+// Roles only dealt when every human at the table runs a client that can show them
+// (each client lists them in `roles` when it joins), so an old frontend never gets one.
+const EXTRA_ROLES = ['JESTER', 'THIEF'];
+
+function extrasFor(players) {
+  const humans = players.filter((p) => !p.bot);
+  return EXTRA_ROLES.filter((r) => humans.every((p) => (p.knows || []).includes(r)));
+}
+
+// The roles dealt to a table of n players (unshuffled). `extras`: which extra roles may be dealt.
+function rolesFor(n, extras = EXTRA_ROLES) {
   const roles = [];
   const m = mafiaCount(n);
   for (let i = 0; i < m; i++) roles.push('MAFIA');
   roles.push('DOCTOR', 'DETECTIVE');
-  if (n >= JESTER_FROM) roles.push('JESTER');
-  if (n >= THIEF_FROM) roles.push('THIEF');
+  if (n >= JESTER_FROM && extras.includes('JESTER')) roles.push('JESTER');
+  if (n >= THIEF_FROM && extras.includes('THIEF')) roles.push('THIEF');
   while (roles.length < n) roles.push('VILLAGER');
   return roles;
 }
 
-function assignRoles(players) {
-  const roles = shuffle(rolesFor(players.length));
+function assignRoles(players, extras = EXTRA_ROLES) {
+  const roles = shuffle(rolesFor(players.length, extras));
   players.forEach((p, i) => (p.role = roles[i]));
 }
 
-module.exports = { assignRoles, rolesFor, mafiaCount, teamOf, shuffle, MIN_PLAYERS, MAX_PLAYERS, JESTER_FROM, THIEF_FROM };
+module.exports = { assignRoles, rolesFor, extrasFor, EXTRA_ROLES, mafiaCount, teamOf, shuffle, MIN_PLAYERS, MAX_PLAYERS, JESTER_FROM, THIEF_FROM };

@@ -168,3 +168,13 @@ test('after a theft both players are told, the town hears of it, and the Mafia s
     phases.clearTimers(room);
   }
 });
+
+test('extra roles are only dealt when every human can show them; bots never block it', () => {
+  const { extrasFor, rolesFor } = require('../game/roles');
+  const both = ['JESTER', 'THIEF'];
+  assert.deepEqual(extrasFor([{ knows: both }, { knows: both }, { bot: true }]), both);
+  assert.deepEqual(extrasFor([{ knows: both }, { knows: ['JESTER'] }]), ['JESTER']);
+  assert.deepEqual(extrasFor([{ knows: both }, {}]), [], 'an old client blocks both');
+  assert.ok(!rolesFor(8, []).some((r) => r === 'JESTER' || r === 'THIEF'));
+  assert.equal(rolesFor(8, []).filter((r) => r === 'VILLAGER').length, 4);
+});

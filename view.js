@@ -1,7 +1,7 @@
 // Builds what each player is allowed to see. Roles are never broadcast:
 // you see your own role, your Mafia teammates (if Mafia), and the role of
 // anyone who is dead or once the game is over.
-const { teamOf } = require('./game/roles');
+const { teamOf, extrasFor } = require('./game/roles');
 const { VOTE_PHASES } = require('./game/actions');
 
 // The Mafia get their own always-open channel when there are two or more of them.
@@ -79,6 +79,7 @@ function stateFor(room, viewer) {
     winner: room.winner,
     gameId: room.startedAt ? `${room.code}-${room.startedAt}` : null,
     result: room.result,
+    extraRoles: room.phase === 'LOBBY' ? extrasFor(room.players) : [], // what the lobby's role mix will deal
     players: room.players.map((p) => ({
       id: p.id,
       name: p.name,

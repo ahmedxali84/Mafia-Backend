@@ -100,7 +100,10 @@ io.on('connection', (socket) => {
     return room && player && player.socketId === socket.id ? { room, player } : {};
   };
 
-  function enter(room, player) {
+  // `roles`: the extra roles this client can show (see roles.extrasFor). Refreshed on every join,
+  // since a reload may bring a newer client.
+  function enter(room, player, roles) {
+    player.knows = Array.isArray(roles) ? roles.filter((r) => typeof r === 'string').slice(0, 10) : [];
     if (player.socketId !== socket.id) player.voice = null; // a new tab/refresh must rejoin voice
     player.socketId = socket.id;
     current = { code: room.code, playerId: player.id };
@@ -108,20 +111,20 @@ io.on('connection', (socket) => {
     broadcast(room);
   }
 
-  socket.on('create_room', ({ playerId, name, bots = 0 } = {}, cb = () => {}) => {
+  socket.on('create_room', ({ playerId, name, bots = 0, roles } = {}, cb = () => {}) => {
     if (!playerId || !rm.cleanName(name)) return cb({ error: 'Name is required' });
     const room = rm.createRoom(playerId, name);
     if (bots > 0) rm.addBots(room, Math.min(Number(bots) || 0, 11));
-    enter(room, room.players[0]);
+    enter(room, room.players[0], roles);
     cb({ ok: true, code: room.code });
   });
 
   // Fresh join or reconnect (same playerId gets its old seat back).
-  const join = ({ code, playerId, name } = {}, cb = () => {}) => {
+  const join = ({ code, playerId, name, roles } = {}, cb = () => {}) => {
     if (!playerId) return cb({ error: 'Missing player id' });
     const res = rm.joinRoom(code, playerId, name);
     if (res.error) return cb({ error: res.error });
-    enter(res.room, res.player);
+    enter(res.room, res.player, roles);
     cb({ ok: true, code: res.room.code });
   };
   socket.on('join_room', join);

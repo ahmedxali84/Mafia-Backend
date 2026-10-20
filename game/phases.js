@@ -1,4 +1,4 @@
-const { assignRoles, MIN_PLAYERS } = require('./roles');
+const { assignRoles, extrasFor, MIN_PLAYERS } = require('./roles');
 const { winCheck } = require('./winCheck');
 const actions = require('./actions');
 const bots = require('./bots');
@@ -47,7 +47,7 @@ function setPhase(room, phase, ctx) {
 function startGame(room, ctx) {
   if (room.phase !== 'LOBBY') return { error: 'Game already started' };
   if (room.players.length < MIN_PLAYERS) return { error: `Need at least ${MIN_PLAYERS} players` };
-  assignRoles(room.players);
+  assignRoles(room.players, extrasFor(room.players));
   room.players.forEach((p) => {
     p.alive = true;
     p.checks = [];
