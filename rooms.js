@@ -49,6 +49,9 @@ function joinRoom(code, playerId, name) {
   if (existing) {
     existing.connected = true;
     clearTimeout(existing.dropTimer);
+    clearTimeout(room.cleanupTimer);
+    // If the host is still away, the first player back takes over (else nobody could start).
+    pickNewHost(room);
     return { room, player: existing };
   }
   if (!cleanName(name)) return { error: 'NAME_REQUIRED' };
@@ -113,22 +116,28 @@ function cleanupIfEmpty(room) {
   clearTimeout(room.cleanupTimer);
   if (room.players.some((p) => p.connected && !p.bot)) return;
   room.cleanupTimer = setTimeout(() => {
-    if (!room.players.some((p) => p.connected && !p.bot)) {
-      clearTimers(room);
-      delete rooms[room.code];
-    }
+    if (!room.players.some((p) => p.connected && !p.bot)) deleteRoom(room);
   }, room.phase === 'LOBBY' ? 15000 : 5 * 60 * 1000);
   room.cleanupTimer.unref();
 }
 
+// Only deletes this exact room: a late timer must not remove a newer room that reused the code.
+function deleteRoom(room) {
+  clearTimers(room);
+  clearTimeout(room.cleanupTimer);
+  if (rooms[room.code] === room) delete rooms[room.code];
+}
+
 function leaveRoom(room, playerId, onChange) {
   removePlayer(room, playerId);
-  if (!room.players.some((p) => !p.bot)) {
-    clearTimers(room);
-    delete rooms[room.code];
-    return;
-  }
+  if (!room.players.some((p) => !p.bot)) return deleteRoom(room);
   onChange(room);
 }
 
-module.exports = { rooms, createRoom, joinRoom, addBots, removeBots, disconnect, leaveRoom, cleanName };
+// Back in the lobby after a game: humans who left or dropped mid-game get the normal lobby
+// grace period and are then removed, instead of keeping their seat (and being dealt a role).
+function dropOffline(room, onChange) {
+  for (const p of room.players) if (!p.bot && !p.connected) disconnect(room, p.id, onChange);
+}
+
+module.exports = { rooms, createRoom, joinRoom, addBots, removeBots, disconnect, leaveRoom, dropOffline, cleanName };

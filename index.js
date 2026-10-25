@@ -9,6 +9,7 @@ const phases = require('./game/phases');
 const actions = require('./game/actions');
 const { teamOf } = require('./game/roles');
 const whispers = require('./game/whispers');
+const feedback = require('./feedback');
 const { stateFor, chatChannel, canSeeMessage, canWriteMafiaChat } = require('./view');
 
 const PORT = process.env.PORT || 4000;
@@ -29,9 +30,12 @@ const ack = (cb) => (typeof cb === 'function' ? cb : () => {});
 const SIGNAL_RATE = 300; // messages per second per socket (joining a full table sends ~11 offers + their ICE candidates)
 
 const app = express();
+// Render (and most hosts) sit one proxy in front of us: use the visitor's real IP (feedback rate limit).
+app.set('trust proxy', 1);
 app.use(cors({ origin: ORIGIN }));
 app.get('/', (_req, res) => res.send('Mafia server running'));
 app.get('/health', (_req, res) => res.json({ ok: true, rooms: Object.keys(rm.rooms).length }));
+app.use(feedback.router());
 
 const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: ORIGIN } });
@@ -100,9 +104,41 @@ io.on('connection', (socket) => {
     return room && player && player.socketId === socket.id ? { room, player } : {};
   };
 
+  // Registers a client event safely (from Hiban's hardening, branch `hiban`): a missing or
+  // garbage payload becomes {}, a missing ack becomes a no-op, and a thrown error is reported
+  // to that client instead of crashing the whole server (one bad client must not end every game).
+  const on = (event, handler) => {
+    socket.on(event, (payload, ack) => {
+      if (typeof payload === 'function') [payload, ack] = [{}, payload];
+      const data = payload && typeof payload === 'object' && !Array.isArray(payload) ? payload : {};
+      const cb = typeof ack === 'function' ? ack : () => {};
+      try {
+        handler(data, cb);
+      } catch (err) {
+        console.error(`Error in ${event}:`, err);
+        cb({ error: 'Server error' });
+      }
+    });
+  };
+
   // `roles`: the extra roles this client can show (see roles.extrasFor). Refreshed on every join,
   // since a reload may bring a newer client.
+  // Takes this socket out of its current room (as if the player pressed "Leave").
+  function leave() {
+    const { room, player } = me();
+    current = null;
+    if (!room || !player) return;
+    socket.leave(room.code);
+    if (player.socketId !== socket.id) return; // seat already taken over by a newer tab
+    player.voice = null;
+    if (room.phase === 'LOBBY' || room.phase === 'GAME_OVER') rm.leaveRoom(room, player.id, broadcast);
+    else rm.disconnect(room, player.id, broadcast), broadcast(room);
+  }
+
   function enter(room, player, roles) {
+    // Same socket going to another room (e.g. browser Back, then create/join): leave the old one
+    // first, otherwise it stays there as a "connected" ghost and keeps getting that room's events.
+    if (current && current.code !== room.code) leave();
     player.knows = Array.isArray(roles) ? roles.filter((r) => typeof r === 'string').slice(0, 10) : [];
     if (player.socketId !== socket.id) player.voice = null; // a new tab/refresh must rejoin voice
     player.socketId = socket.id;
@@ -111,7 +147,7 @@ io.on('connection', (socket) => {
     broadcast(room);
   }
 
-  socket.on('create_room', ({ playerId, name, bots = 0, roles } = {}, cb = () => {}) => {
+  on('create_room', ({ playerId, name, bots = 0, roles } = {}, cb = () => {}) => {
     if (!playerId || !rm.cleanName(name)) return cb({ error: 'Name is required' });
     const room = rm.createRoom(playerId, name);
     if (bots > 0) rm.addBots(room, Math.min(Number(bots) || 0, 11));
@@ -127,36 +163,31 @@ io.on('connection', (socket) => {
     enter(res.room, res.player, roles);
     cb({ ok: true, code: res.room.code });
   };
-  socket.on('join_room', join);
-  socket.on('rejoin_room', join);
+  on('join_room', join);
+  on('rejoin_room', join);
 
-  socket.on('leave_room', (_p, cb = () => {}) => {
-    const { room, player } = me();
-    if (!room || !player) return cb({ ok: true });
-    player.voice = null;
-    socket.leave(room.code);
-    if (room.phase === 'LOBBY' || room.phase === 'GAME_OVER') rm.leaveRoom(room, player.id, broadcast);
-    else rm.disconnect(room, player.id, broadcast), broadcast(room);
-    current = null;
+  on('leave_room', (_p, cb = () => {}) => {
+    leave();
     cb({ ok: true });
   });
 
-  socket.on('start_game', (_p, cb = () => {}) => {
+  on('start_game', (_p, cb = () => {}) => {
     const { room, player } = me();
     if (!room) return cb({ error: 'Not in a room' });
     if (room.host !== player.id) return cb({ error: 'Only the host can start' });
     cb(phases.startGame(room, ctx));
   });
 
-  socket.on('play_again', (_p, cb = () => {}) => {
+  on('play_again', (_p, cb = () => {}) => {
     const { room, player } = me();
     if (!room || room.host !== player.id) return cb({ error: 'Only the host can do that' });
     if (room.phase !== 'GAME_OVER') return cb({ error: 'Game not over' });
     phases.backToLobby(room, ctx);
+    rm.dropOffline(room, broadcast);
     cb({ ok: true });
   });
 
-  socket.on('night_action', ({ targetId } = {}, cb = () => {}) => {
+  on('night_action', ({ targetId } = {}, cb = () => {}) => {
     const { room, player } = me();
     if (!room) return cb({ error: 'Not in a room' });
     const res = actions.submitNightAction(room, player.id, targetId);
@@ -167,7 +198,7 @@ io.on('connection', (socket) => {
     cb({ ok: true });
   });
 
-  socket.on('cast_vote', ({ targetId } = {}, cb = () => {}) => {
+  on('cast_vote', ({ targetId } = {}, cb = () => {}) => {
     const { room, player } = me();
     if (!room) return cb({ error: 'Not in a room' });
     const res = actions.castVote(room, player.id, targetId);
@@ -180,7 +211,7 @@ io.on('connection', (socket) => {
   // `channel: 'mafia'` writes to the Mafia's private channel (open day and night when there
   // are two or more Mafia); otherwise the message goes to the player's current channel.
   // During discussion: "I'm ready to vote". When every living human is ready, voting starts.
-  socket.on('ready_vote', ({ ready = true } = {}, cb = () => {}) => {
+  on('ready_vote', ({ ready = true } = {}, cb = () => {}) => {
     const { room, player } = me();
     if (!room) return cb({ error: 'Not in a room' });
     const res = phases.setReady(room, player.id, !!ready, ctx);
@@ -189,7 +220,7 @@ io.on('connection', (socket) => {
     cb({ ok: true });
   });
 
-  socket.on('chat_message', ({ text, channel: wanted } = {}, cb = () => {}) => {
+  on('chat_message', ({ text, channel: wanted } = {}, cb = () => {}) => {
     const { room, player } = me();
     if (!room) return cb({ error: 'Not in a room' });
     if (Date.now() - (player.lastChat || 0) < 600) return cb({ error: 'Slow down a little' });
@@ -204,7 +235,7 @@ io.on('connection', (socket) => {
   });
 
   // Secret message to one living player (limited per game). Nobody else learns it happened.
-  socket.on('whisper', ({ targetId, text } = {}, cb = () => {}) => {
+  on('whisper', ({ targetId, text } = {}, cb = () => {}) => {
     const { room, player } = me();
     if (!room) return cb({ error: 'Not in a room' });
     const res = whispers.sendWhisper(room, player.id, targetId, text);
@@ -215,7 +246,7 @@ io.on('connection', (socket) => {
   });
 
   // The host can fill empty seats with bots so the game always has a table.
-  socket.on('add_bots', ({ count = 4 } = {}, cb = () => {}) => {
+  on('add_bots', ({ count = 4 } = {}, cb = () => {}) => {
     const { room, player } = me();
     if (!room || room.host !== player.id || room.phase !== 'LOBBY') return cb({ error: 'Host only, in lobby' });
     rm.addBots(room, Math.min(Number(count) || 0, 11));
@@ -223,7 +254,7 @@ io.on('connection', (socket) => {
     cb({ ok: true });
   });
 
-  socket.on('remove_bots', (_p, cb = () => {}) => {
+  on('remove_bots', (_p, cb = () => {}) => {
     const { room, player } = me();
     if (!room || room.host !== player.id || room.phase !== 'LOBBY') return cb({ error: 'Host only, in lobby' });
     rm.removeBots(room);
@@ -232,7 +263,7 @@ io.on('connection', (socket) => {
   });
 
   // ── Voice chat (WebRTC). The server only relays signaling; see docs/VOICE.md. ──
-  socket.on('voice_join', (_p, done) => {
+  on('voice_join', (_p, done) => {
     const cb = ack(done);
     const { room, player } = meLive();
     if (!room) return cb({ error: 'Not in a room' });
@@ -241,7 +272,7 @@ io.on('connection', (socket) => {
     cb({ ok: true, session: player.voice.session, iceServers: ICE_SERVERS, at: Date.now() });
   });
 
-  socket.on('voice_leave', (_p, done) => {
+  on('voice_leave', (_p, done) => {
     const cb = ack(done);
     const { room, player } = meLive();
     if (room && player?.voice) {
@@ -251,7 +282,7 @@ io.on('connection', (socket) => {
     cb({ ok: true });
   });
 
-  socket.on('voice_mute', (p, done) => {
+  on('voice_mute', (p, done) => {
     const cb = ack(done);
     const muted = !!(p && p.muted);
     const { room, player } = meLive();
@@ -263,7 +294,7 @@ io.on('connection', (socket) => {
 
   // Relays an SDP offer/answer or ICE candidate to one other player in voice in the same room.
   let signals = { at: 0, n: 0 };
-  socket.on('voice_signal', (p) => {
+  on('voice_signal', (p) => {
     const { to, toSession, data } = p && typeof p === 'object' ? p : {};
     const { room, player } = meLive();
     if (!room || !player.voice) return;
