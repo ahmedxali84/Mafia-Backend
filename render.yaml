@@ -18,3 +18,9 @@ services:
         sync: false
       - key: TURN_CREDENTIAL
         sync: false
+      - key: FEEDBACK_TOKEN
+        sync: false
+      - key: MONGODB_URI
+        sync: false # MongoDB Atlas connection string; empty = account stats off
+      - key: GAME_TOKEN_SECRET
+        sync: false # same value as GAME_TOKEN_SECRET on Vercel
