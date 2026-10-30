@@ -6,6 +6,9 @@ const { resetWhispers } = require('./whispers');
 
 const scale = Number(process.env.TIMER_SCALE) || 1; // set small in tests
 
+// Every phase, in game order (LOBBY → … → GAME_OVER).
+const PHASES = ['LOBBY', 'ROLE_REVEAL', 'NIGHT', 'DAY_RESULT', 'DISCUSSION', 'VOTING', 'VOTE_RESULT', 'GAME_OVER'];
+
 const DURATIONS = {
   ROLE_REVEAL: 8000,
   NIGHT: 30000,
@@ -191,4 +194,4 @@ function backToLobby(room, ctx) {
   ctx.onChange(room);
 }
 
-module.exports = { startGame, setPhase, checkEarlyEnd, setReady, backToLobby, clearTimers, DURATIONS };
+module.exports = { PHASES, startGame, setPhase, checkEarlyEnd, setReady, backToLobby, clearTimers, DURATIONS };
