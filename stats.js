@@ -19,11 +19,13 @@ async function connect(uri = process.env.MONGODB_URI, dbName = process.env.MONGO
 const enabled = () => !!users;
 const useStore = (store) => (users = store); // tests
 
-// Who gets a result recorded at the end of a game: humans who were signed in.
+// Who gets a result recorded at the end of a game: humans who were signed in, once per account
+// (the same account in two tabs at one table counts once, for the first seat).
 // Won = their final role's team won (a Thief is judged by the role they stole).
 function resultsFor(room) {
+  const seen = new Set();
   return room.players
-    .filter((p) => !p.bot && p.account && p.role)
+    .filter((p) => !p.bot && p.account && p.role && !seen.has(p.account.id) && seen.add(p.account.id))
     .map((p) => ({ account: p.account, role: p.role, won: teamOf(p.role) === room.winner }));
 }
 

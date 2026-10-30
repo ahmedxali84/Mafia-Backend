@@ -53,18 +53,32 @@ app.get('/stats/me', async (req, res) => {
 app.use(feedback.router());
 
 const server = http.createServer(app);
-const io = new Server(server, { cors: { origin: ORIGIN } });
+// 100 kB per message is plenty (the biggest are voice SDP, capped at 16 kB); the default 1 MB invites abuse.
+const io = new Server(server, { cors: { origin: ORIGIN }, maxHttpBufferSize: 100_000 });
+const EVENT_RATE = 40; // client events per second per connection (voice signaling has its own limit)
 
 const socketOf = (p) => (p.socketId ? io.sockets.sockets.get(p.socketId) : null);
 
 // Sends every player their own personalised snapshot of the room.
+// The chat log is most of a snapshot's size, and new messages already arrive as chat_message events,
+// so clients that say so ('lean-state') only get the full log when they (re)join or when the channels
+// they may read change (they die, the Thief moves the Mafia role, the game ends, a new game starts).
+// Older clients get it every time, as before.
 function broadcast(room) {
   io.to(room.code).emit('room_update', room.players.map((p) => ({ id: p.id, name: p.name, connected: p.connected || !!p.bot })));
   for (const p of room.players) {
     const s = socketOf(p);
-    if (s) s.emit('state', stateFor(room, p));
+    if (!s) continue;
+    const sig = chatAccess(room, p);
+    const chat = !p.leanState || p.needChat || sig !== p.chatSig;
+    s.emit('state', stateFor(room, p, { chat }));
+    if (chat) [p.needChat, p.chatSig] = [false, sig];
   }
 }
+
+// Which chat channels this player may read right now (see view.canSeeMessage), plus the room's chat
+// log identity (a new game starts a fresh log).
+const chatAccess = (room, p) => `${p.role === 'MAFIA'}|${!p.alive || room.phase === 'GAME_OVER'}|${room.startedAt || 0}`;
 
 // Stores a chat message and sends it to everyone allowed to see it.
 function deliver(room, msg) {
@@ -124,11 +138,19 @@ io.on('connection', (socket) => {
   // Registers a client event safely (from Hiban's hardening, branch `hiban`): a missing or
   // garbage payload becomes {}, a missing ack becomes a no-op, and a thrown error is reported
   // to that client instead of crashing the whole server (one bad client must not end every game).
+  // Also rate-limited: a client flooding events (each one can re-send state to the whole table)
+  // gets an error instead of slowing the server down for everyone.
+  let budget = { at: 0, n: 0 };
   const on = (event, handler) => {
     socket.on(event, (payload, ack) => {
       if (typeof payload === 'function') [payload, ack] = [{}, payload];
       const data = payload && typeof payload === 'object' && !Array.isArray(payload) ? payload : {};
       const cb = typeof ack === 'function' ? ack : () => {};
+      if (event !== 'voice_signal') {
+        const now = Date.now();
+        if (now - budget.at > 1000) budget = { at: now, n: 0 };
+        if (++budget.n > EVENT_RATE) return cb({ error: 'Too many requests, slow down' });
+      }
       try {
         handler(data, cb);
       } catch (err) {
@@ -153,12 +175,17 @@ io.on('connection', (socket) => {
   // `roles`: the extra roles this client can show (see roles.extrasFor). Refreshed on every join,
   // since a reload may bring a newer client.
   // `authToken`: the signed-in player's game token (see auth.js); without one they play as a guest.
-  function enter(room, player, roles, authToken) {
+  // `features`: client capabilities; 'lean-state' = it keeps chat from chat_message events.
+  function enter(room, player, roles, authToken, features) {
     // Same socket going to another room (e.g. browser Back, then create/join): leave the old one
     // first, otherwise it stays there as a "connected" ghost and keeps getting that room's events.
     if (current && current.code !== room.code) leave();
     player.knows = Array.isArray(roles) ? roles.filter((r) => typeof r === 'string').slice(0, 10) : [];
-    player.account = verifyToken(authToken);
+    // A token (or null = signed out) sets the account. No token field at all (e.g. the browser
+    // couldn't reach /api/game-token on a reconnect) keeps the seat's account, so the game still counts.
+    if (authToken !== undefined || player.account === undefined) player.account = verifyToken(authToken);
+    player.leanState = Array.isArray(features) && features.includes('lean-state');
+    player.needChat = true; // a (re)joining tab needs the whole log once
     if (player.socketId !== socket.id) player.voice = null; // a new tab/refresh must rejoin voice
     player.socketId = socket.id;
     current = { code: room.code, playerId: player.id };
@@ -166,20 +193,20 @@ io.on('connection', (socket) => {
     broadcast(room);
   }
 
-  on('create_room', ({ playerId, name, bots = 0, roles, authToken } = {}, cb = () => {}) => {
+  on('create_room', ({ playerId, name, bots = 0, roles, authToken, features } = {}, cb = () => {}) => {
     if (!playerId || !rm.cleanName(name)) return cb({ error: 'Name is required' });
     const room = rm.createRoom(playerId, name);
     if (bots > 0) rm.addBots(room, Math.min(Number(bots) || 0, 11));
-    enter(room, room.players[0], roles, authToken);
+    enter(room, room.players[0], roles, authToken, features);
     cb({ ok: true, code: room.code });
   });
 
   // Fresh join or reconnect (same playerId gets its old seat back).
-  const join = ({ code, playerId, name, roles, authToken } = {}, cb = () => {}) => {
+  const join = ({ code, playerId, name, roles, authToken, features } = {}, cb = () => {}) => {
     if (!playerId) return cb({ error: 'Missing player id' });
     const res = rm.joinRoom(code, playerId, name);
     if (res.error) return cb({ error: res.error });
-    enter(res.room, res.player, roles, authToken);
+    enter(res.room, res.player, roles, authToken, features);
     cb({ ok: true, code: res.room.code });
   };
   on('join_room', join);
@@ -338,6 +365,10 @@ io.on('connection', (socket) => {
 });
 
 if (require.main === module) {
+  // Last line of defence: an error in a phase timer or a bot must not take every game down with it.
+  // Socket events are already guarded (see `on`); this catches the rest and keeps the server up.
+  process.on('uncaughtException', (err) => console.error('Uncaught error (server kept running):', err));
+  process.on('unhandledRejection', (err) => console.error('Unhandled rejection (server kept running):', err));
   server.listen(PORT, () => console.log(`Server running on port ${PORT}${DEBUG ? ' (debug on)' : ''}`));
   stats
     .connect()
