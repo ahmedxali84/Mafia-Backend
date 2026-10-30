@@ -63,7 +63,9 @@ function voiceFor(room, p) {
   };
 }
 
-function stateFor(room, viewer) {
+// `chat: false` leaves the chat log out (clients that keep it from chat_message events only need it
+// when they join and when the phase changes; see broadcast in index.js).
+function stateFor(room, viewer, { chat = true } = {}) {
   const started = room.phase !== 'LOBBY';
   return {
     code: room.code,
@@ -105,7 +107,7 @@ function stateFor(room, viewer) {
       mafiaChat: hasMafiaChat(room, viewer) ? { canWrite: canWriteMafiaChat(room, viewer) } : null,
       voice: voiceFor(room, viewer),
     },
-    chat: room.chat.filter((m) => canSeeMessage(room, viewer, m)),
+    ...(chat && { chat: room.chat.filter((m) => canSeeMessage(room, viewer, m)) }),
   };
 }
 

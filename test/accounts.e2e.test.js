@@ -86,3 +86,42 @@ test('a full game saves the signed-in player and skips the guest', async () => {
   assert.equal(update.$inc.losses, won ? 0 : 1);
   assert.equal(update.$inc[`byRole.${role}.games`], 1);
 });
+
+test('rejoining without a token keeps the account; signing out (null) clears it', async () => {
+  const rm = require('../rooms');
+  const s1 = connect(url, { forceNew: true });
+  const { code } = await emit(s1, 'create_room', { playerId: 'keeper', name: 'Keeper', authToken: token('g-keep', 'Keep') });
+  const seat = () => rm.rooms[code].players.find((p) => p.id === 'keeper');
+  assert.equal(seat().account.id, 'g-keep');
+  s1.close();
+  const s2 = connect(url, { forceNew: true });
+  assert.ok((await emit(s2, 'rejoin_room', { code, playerId: 'keeper' })).ok);
+  assert.equal(seat().account?.id, 'g-keep', 'no token field: the account stays');
+  assert.ok((await emit(s2, 'rejoin_room', { code, playerId: 'keeper', authToken: null })).ok);
+  assert.equal(seat().account, null, 'signed out: now a guest');
+  s2.close();
+});
+
+test('Play again: each game is saved separately', async () => {
+  const saved = [];
+  stats.useStore({ updateOne: async (filter, update) => saved.push(update.$push.recent.$each[0].gameId), findOne: async () => null });
+  const s = connect(url, { forceNew: true });
+  let over = 0;
+  s.on('game_over', () => over++);
+  const { code } = await emit(s, 'create_room', { playerId: 'again', name: 'Again', bots: 4, authToken: token('g-again', 'Again') });
+  const rm = require('../rooms');
+  const waitOver = async (n) => { const end = Date.now() + 60000; while (over < n && Date.now() < end) await new Promise((r) => setTimeout(r, 20)); };
+  assert.ok((await emit(s, 'start_game', {})).ok);
+  rm.rooms[code].players.find((p) => p.id === 'again').connected = false; // autopilot plays for them
+  await waitOver(1);
+  rm.rooms[code].players.find((p) => p.id === 'again').connected = true;
+  assert.ok((await emit(s, 'play_again', {})).ok);
+  await new Promise((r) => setTimeout(r, 50));
+  assert.ok((await emit(s, 'start_game', {})).ok);
+  rm.rooms[code].players.find((p) => p.id === 'again').connected = false;
+  await waitOver(2);
+  await new Promise((r) => setTimeout(r, 50));
+  s.close();
+  assert.equal(saved.length, 2, 'two games, two saves');
+  assert.notEqual(saved[0], saved[1], 'different game ids');
+});

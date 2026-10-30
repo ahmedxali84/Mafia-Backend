@@ -101,3 +101,9 @@ test('without a database nothing is saved and nothing throws', async () => {
 });
 
 module.exports = { fakeUsers, tok, SECRET };
+
+test('the same account in two seats at one table is counted once', () => {
+  const acc = { id: 'G', name: 'G', image: null };
+  const room = { winner: 'VILLAGERS', players: [{ id: 't1', role: 'DOCTOR', account: acc }, { id: 't2', role: 'MAFIA', account: acc }] };
+  assert.deepEqual(stats.resultsFor(room).map((r) => [r.account.id, r.role, r.won]), [['G', 'DOCTOR', true]]);
+});
