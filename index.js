@@ -10,6 +10,8 @@ const actions = require('./game/actions');
 const { teamOf } = require('./game/roles');
 const whispers = require('./game/whispers');
 const feedback = require('./feedback');
+const { verifyToken, bearer } = require('./auth');
+const stats = require('./stats');
 const { stateFor, chatChannel, canSeeMessage, canWriteMafiaChat } = require('./view');
 
 const PORT = process.env.PORT || 4000;
@@ -34,7 +36,20 @@ const app = express();
 app.set('trust proxy', 1);
 app.use(cors({ origin: ORIGIN }));
 app.get('/', (_req, res) => res.send('Mafia server running'));
-app.get('/health', (_req, res) => res.json({ ok: true, rooms: Object.keys(rm.rooms).length }));
+app.get('/health', (_req, res) => res.json({ ok: true, rooms: Object.keys(rm.rooms).length, accounts: stats.enabled() }));
+
+// Saved stats of the signed-in player (Authorization: Bearer <game token>).
+app.get('/stats/me', async (req, res) => {
+  if (!stats.enabled()) return res.status(503).json({ error: 'Accounts are not set up on this server' });
+  const account = verifyToken(bearer(req));
+  if (!account) return res.status(401).json({ error: 'Sign in again' });
+  try {
+    res.json({ name: account.name, ...(await stats.getStats(account.id)) });
+  } catch (err) {
+    console.error('stats/me:', err.message);
+    res.status(500).json({ error: 'Could not load stats' });
+  }
+});
 app.use(feedback.router());
 
 const server = http.createServer(app);
@@ -85,6 +100,8 @@ const ctx = {
       winner: room.winner,
       roles: Object.fromEntries(room.players.map((p) => [p.id, p.role])),
     });
+    // Signed-in players' wins/losses go to the database (no-op without MONGODB_URI).
+    stats.recordGame(room).catch((err) => console.error('Could not save game stats:', err.message));
   },
 };
 
@@ -121,8 +138,6 @@ io.on('connection', (socket) => {
     });
   };
 
-  // `roles`: the extra roles this client can show (see roles.extrasFor). Refreshed on every join,
-  // since a reload may bring a newer client.
   // Takes this socket out of its current room (as if the player pressed "Leave").
   function leave() {
     const { room, player } = me();
@@ -135,11 +150,15 @@ io.on('connection', (socket) => {
     else rm.disconnect(room, player.id, broadcast), broadcast(room);
   }
 
-  function enter(room, player, roles) {
+  // `roles`: the extra roles this client can show (see roles.extrasFor). Refreshed on every join,
+  // since a reload may bring a newer client.
+  // `authToken`: the signed-in player's game token (see auth.js); without one they play as a guest.
+  function enter(room, player, roles, authToken) {
     // Same socket going to another room (e.g. browser Back, then create/join): leave the old one
     // first, otherwise it stays there as a "connected" ghost and keeps getting that room's events.
     if (current && current.code !== room.code) leave();
     player.knows = Array.isArray(roles) ? roles.filter((r) => typeof r === 'string').slice(0, 10) : [];
+    player.account = verifyToken(authToken);
     if (player.socketId !== socket.id) player.voice = null; // a new tab/refresh must rejoin voice
     player.socketId = socket.id;
     current = { code: room.code, playerId: player.id };
@@ -147,20 +166,20 @@ io.on('connection', (socket) => {
     broadcast(room);
   }
 
-  on('create_room', ({ playerId, name, bots = 0, roles } = {}, cb = () => {}) => {
+  on('create_room', ({ playerId, name, bots = 0, roles, authToken } = {}, cb = () => {}) => {
     if (!playerId || !rm.cleanName(name)) return cb({ error: 'Name is required' });
     const room = rm.createRoom(playerId, name);
     if (bots > 0) rm.addBots(room, Math.min(Number(bots) || 0, 11));
-    enter(room, room.players[0], roles);
+    enter(room, room.players[0], roles, authToken);
     cb({ ok: true, code: room.code });
   });
 
   // Fresh join or reconnect (same playerId gets its old seat back).
-  const join = ({ code, playerId, name, roles } = {}, cb = () => {}) => {
+  const join = ({ code, playerId, name, roles, authToken } = {}, cb = () => {}) => {
     if (!playerId) return cb({ error: 'Missing player id' });
     const res = rm.joinRoom(code, playerId, name);
     if (res.error) return cb({ error: res.error });
-    enter(res.room, res.player, roles);
+    enter(res.room, res.player, roles, authToken);
     cb({ ok: true, code: res.room.code });
   };
   on('join_room', join);
@@ -320,6 +339,10 @@ io.on('connection', (socket) => {
 
 if (require.main === module) {
   server.listen(PORT, () => console.log(`Server running on port ${PORT}${DEBUG ? ' (debug on)' : ''}`));
+  stats
+    .connect()
+    .then((on) => console.log(on ? 'MongoDB connected: saving stats for signed-in players' : 'No MONGODB_URI: account stats are off'))
+    .catch((err) => console.error('MongoDB connection failed, account stats are off:', err.message));
 }
 
 module.exports = { server, io };
