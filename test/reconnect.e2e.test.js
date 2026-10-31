@@ -133,7 +133,8 @@ test('host drops mid-game: the other human becomes host and can start the next g
   await waitFor(() => room.phase === 'NIGHT', 15000, 'night');
   a.socket.close();
   await waitFor(() => room.host === b.id, 3000, 'host hand-over');
-  await waitFor(() => room.phase === 'GAME_OVER', 60000, 'game over');
+  // A whole game with bots can take several rounds (measured 44-62 s at TIMER_SCALE 0.2), so allow 3 minutes.
+  await waitFor(() => room.phase === 'GAME_OVER', 180000, 'game over');
   await waitFor(() => b.state?.phase === 'GAME_OVER', 3000, 'b sees game over');
 
   const a2 = await reconnect(a, code);
