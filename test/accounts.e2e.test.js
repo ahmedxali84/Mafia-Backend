@@ -109,19 +109,25 @@ test('Play again: each game is saved separately', async () => {
   let over = 0;
   s.on('game_over', () => over++);
   const { code } = await emit(s, 'create_room', { playerId: 'again', name: 'Again', bots: 4, authToken: token('g-again', 'Again') });
+  // A friend at the table, so the games count (alone against bots is practice and isn't saved).
+  const friend = connect(url, { forceNew: true });
+  assert.ok((await emit(friend, 'join_room', { code, playerId: 'again-friend', name: 'Friend' })).ok);
   const rm = require('../rooms');
   const waitOver = async (n) => { const end = Date.now() + 60000; while (over < n && Date.now() < end) await new Promise((r) => setTimeout(r, 20)); };
   assert.ok((await emit(s, 'start_game', {})).ok);
   rm.rooms[code].players.find((p) => p.id === 'again').connected = false; // autopilot plays for them
+  rm.rooms[code].players.find((p) => p.id === 'again-friend').connected = false;
   await waitOver(1);
   rm.rooms[code].players.find((p) => p.id === 'again').connected = true;
   assert.ok((await emit(s, 'play_again', {})).ok);
   await new Promise((r) => setTimeout(r, 50));
   assert.ok((await emit(s, 'start_game', {})).ok);
   rm.rooms[code].players.find((p) => p.id === 'again').connected = false;
+  rm.rooms[code].players.find((p) => p.id === 'again-friend').connected = false;
   await waitOver(2);
   await new Promise((r) => setTimeout(r, 50));
   s.close();
+  friend.close();
   assert.equal(saved.length, 2, 'two games, two saves');
   assert.notEqual(saved[0], saved[1], 'different game ids');
 });

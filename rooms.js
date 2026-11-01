@@ -1,3 +1,4 @@
+const crypto = require('crypto');
 const { MAX_PLAYERS } = require('./game/roles');
 const { clearTimers } = require('./game/phases');
 const { botName } = require('./game/bots');
@@ -17,7 +18,18 @@ function cleanName(name) {
   return String(name || '').trim().slice(0, 16);
 }
 
-function createRoom(playerId, name) {
+// Seat key: a random secret each browser keeps to itself (the playerId is public: every client
+// receives everyone's id). Only a hash is stored; reclaiming a seat needs the same secret, so
+// nobody can take over another player's seat (and see their role) with the id from the state.
+const hashSecret = (secret) =>
+  typeof secret === 'string' && secret.length >= 16 && secret.length <= 128 ? crypto.createHash('sha256').update(secret).digest() : null;
+function ownsSeat(player, secret) {
+  if (!player.secretHash) return true; // seat from an older client without a key
+  const h = hashSecret(secret);
+  return !!h && crypto.timingSafeEqual(h, player.secretHash);
+}
+
+function createRoom(playerId, name, secret) {
   const code = makeCode();
   rooms[code] = {
     code,
@@ -32,7 +44,7 @@ function createRoom(playerId, name) {
     chat: [],
     timer: null,
     botTimers: [],
-    players: [newPlayer(playerId, name)],
+    players: [newPlayer(playerId, name, { secretHash: hashSecret(secret) })],
   };
   return rooms[code];
 }
@@ -42,11 +54,13 @@ function newPlayer(id, name, extra = {}) {
 }
 
 // Returns { room, player } or { error }. Handles both fresh joins and reconnects.
-function joinRoom(code, playerId, name) {
+function joinRoom(code, playerId, name, secret) {
   const room = rooms[String(code || '').toUpperCase()];
   if (!room) return { error: 'Room not found' };
   const existing = room.players.find((p) => p.id === playerId);
   if (existing) {
+    if (existing.bot || !ownsSeat(existing, secret)) return { error: 'That seat belongs to another player' };
+    if (!existing.secretHash) existing.secretHash = hashSecret(secret); // an old seat gets a key on its next join
     existing.connected = true;
     clearTimeout(existing.dropTimer);
     clearTimeout(room.cleanupTimer);
@@ -60,7 +74,7 @@ function joinRoom(code, playerId, name) {
   if (room.players.some((p) => p.name.toLowerCase() === cleanName(name).toLowerCase())) {
     return { error: 'That name is already taken in this room' };
   }
-  const player = newPlayer(playerId, name);
+  const player = newPlayer(playerId, name, { secretHash: hashSecret(secret) });
   room.players.push(player);
   return { room, player };
 }

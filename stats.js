@@ -19,10 +19,17 @@ async function connect(uri = process.env.MONGODB_URI, dbName = process.env.MONGO
 const enabled = () => !!users;
 const useStore = (store) => (users = store); // tests
 
+// A game counts for account stats only with at least 2 different people at the table (one account
+// in two tabs is one person). Alone against bots is practice: easy wins there would pad the record
+// (the browser still keeps its own count).
+const MIN_HUMANS = 2;
+
 // Who gets a result recorded at the end of a game: humans who were signed in, once per account
 // (the same account in two tabs at one table counts once, for the first seat).
 // Won = their final role's team won (a Thief is judged by the role they stole).
 function resultsFor(room) {
+  const people = new Set(room.players.filter((p) => !p.bot).map((p) => (p.account ? `a:${p.account.id}` : `p:${p.id}`)));
+  if (people.size < MIN_HUMANS) return [];
   const seen = new Set();
   return room.players
     .filter((p) => !p.bot && p.account && p.role && !seen.has(p.account.id) && seen.add(p.account.id))
@@ -59,4 +66,4 @@ async function getStats(id) {
   return { games, wins, losses, byRole, recent };
 }
 
-module.exports = { connect, enabled, useStore, resultsFor, recordGame, getStats };
+module.exports = { connect, enabled, useStore, resultsFor, recordGame, getStats, MIN_HUMANS };

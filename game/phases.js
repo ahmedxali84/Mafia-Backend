@@ -25,12 +25,19 @@ function clearTimers(room) {
   room.botTimers = [];
 }
 
+const BOTS_ONLY_DISCUSSION = 15000;
+
 // ctx: { onChange(room), onPhase(room), onRole(room, player), onCheck(room, check), onGameOver(room) }
 // onRole is sent again to both players when the Thief steals a role.
 function setPhase(room, phase, ctx) {
   clearTimers(room);
   room.phase = phase;
-  const ms = DURATIONS[phase];
+  let ms = DURATIONS[phase];
+  // Only bots left alive (every human is dead or gone): nobody can talk or press "Vote now", so a
+  // full 2-minute discussion would just make the spectators wait. Keep it short.
+  if (phase === 'DISCUSSION' && !room.players.some((p) => p.alive && !p.bot && p.connected !== false)) {
+    ms = Math.min(ms, BOTS_ONLY_DISCUSSION);
+  }
   room.endsAt = ms ? Date.now() + ms * scale : null;
   room.phaseMs = ms ? ms * scale : 0;
   if (ms) room.timer = setTimeout(() => onPhaseEnd(room, ctx), ms * scale);
