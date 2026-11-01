@@ -77,7 +77,7 @@ test('recordGame adds up games, wins, losses, per-role counts and recent games',
   stats.useStore(store);
   try {
     const me = { id: 'g-1', name: 'Ali', image: null };
-    const game = (winner, role, n) => ({ code: 'ABCD', startedAt: n, winner, players: [{ id: 'p', role, account: me }] });
+    const game = (winner, role, n) => ({ code: 'ABCD', startedAt: n, winner, players: [{ id: 'p', role, account: me }, { id: 'guest', role: 'VILLAGER' }] });
     await stats.recordGame(game('VILLAGERS', 'DOCTOR', 1));
     await stats.recordGame(game('MAFIA', 'DOCTOR', 2));
     await stats.recordGame(game('MAFIA', 'MAFIA', 3));
@@ -104,6 +104,28 @@ module.exports = { fakeUsers, tok, SECRET };
 
 test('the same account in two seats at one table is counted once', () => {
   const acc = { id: 'G', name: 'G', image: null };
-  const room = { winner: 'VILLAGERS', players: [{ id: 't1', role: 'DOCTOR', account: acc }, { id: 't2', role: 'MAFIA', account: acc }] };
+  const room = { winner: 'VILLAGERS', players: [{ id: 't1', role: 'DOCTOR', account: acc }, { id: 't2', role: 'MAFIA', account: acc }, { id: 'g', role: 'VILLAGER' }] };
   assert.deepEqual(stats.resultsFor(room).map((r) => [r.account.id, r.role, r.won]), [['G', 'DOCTOR', true]]);
+});
+
+test('alone against bots is practice: nothing is saved to the account', async () => {
+  const me = { id: 'G', name: 'G', image: null };
+  const bots = ['b1', 'b2', 'b3', 'b4'].map((id) => ({ id, role: 'VILLAGER', bot: true }));
+  const solo = { code: 'SOLO', startedAt: 1, winner: 'VILLAGERS', players: [{ id: 'me', role: 'DOCTOR', account: me }, ...bots] };
+  assert.deepEqual(stats.resultsFor(solo), []);
+  // The same account in a second tab is still one person.
+  solo.players.push({ id: 'me2', role: 'VILLAGER', account: me });
+  assert.deepEqual(stats.resultsFor(solo), []);
+  // A second person (even a guest) makes it a real game.
+  solo.players.push({ id: 'friend', role: 'MAFIA' });
+  assert.deepEqual(stats.resultsFor(solo).map((r) => [r.account.id, r.won]), [['G', true]]);
+  const store = fakeUsers();
+  stats.useStore(store);
+  try {
+    solo.players.pop();
+    assert.equal(await stats.recordGame(solo), 0);
+    assert.equal((await stats.getStats('G')).games, 0);
+  } finally {
+    stats.useStore(null);
+  }
 });
